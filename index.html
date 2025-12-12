@@ -29,7 +29,7 @@
     .ticker {
       display: flex;
       align-items: center;
-      animation: scroll-continuous 1s linear infinite;
+      will-change: transform;
     }
 
     .item {
@@ -45,12 +45,6 @@
     .item.emoji {
       font-size: 2.6rem;
       margin-right: 3rem;
-    }
-
-    /* Continuous scroll - moves left forever */
-    @keyframes scroll-continuous {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-100px); }
     }
 
     /* Loading indicator */
@@ -189,13 +183,16 @@
   </div>
 
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwFTTet0ZES5S3ye_QDIgMU5JvZqod7R4qDS7D8AgygKfY2gSU4Du0A9glHebhjNT0/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbyKo_ch6YnxnKmYj5rPHEAvffcpqOWlZMeszkly_eHr4U1sqesUZguWvQDWeWWA8JZq/exec';
 
     // State
     let currentSpeed = 100; // pixels per second
     let isFetching = false;
     let messageCount = 0;
     let lastFetchTime = 0;
+    let scrollPosition = 0;
+    let animationFrameId = null;
+    let lastFrameTime = null;
 
     function toggleControls() {
       const controls = document.getElementById('controls');
@@ -206,7 +203,6 @@
 
     function updateSpeed(value) {
       currentSpeed = parseInt(value);
-      const ticker = document.getElementById('ticker');
       const speedValue = document.getElementById('speedValue');
       
       // Update display
@@ -217,10 +213,47 @@
       else if (value > 110) label = 'Fast';
       
       speedValue.textContent = `${label} (${value}px/s)`;
+    }
+
+    // Continuous scroll animation using requestAnimationFrame
+    function animateScroll(timestamp) {
+      const ticker = document.getElementById('ticker');
       
-      // Update animation speed
-      const duration = 100 / currentSpeed; // time to move 100px
-      ticker.style.animation = `scroll-continuous ${duration}s linear infinite`;
+      if (!lastFrameTime) {
+        lastFrameTime = timestamp;
+      }
+      
+      // Calculate time elapsed since last frame
+      const deltaTime = (timestamp - lastFrameTime) / 1000; // in seconds
+      lastFrameTime = timestamp;
+      
+      // Move left based on speed and time
+      scrollPosition += currentSpeed * deltaTime;
+      ticker.style.transform = `translateX(-${scrollPosition}px)`;
+      
+      // Remove items that have scrolled completely off screen
+      cleanupOffscreenItems();
+      
+      // Continue animation
+      animationFrameId = requestAnimationFrame(animateScroll);
+    }
+
+    function cleanupOffscreenItems() {
+      const ticker = document.getElementById('ticker');
+      const children = ticker.children;
+      
+      // Remove items that are more than 2000px off the left side
+      while (children.length > 0) {
+        const firstChild = children[0];
+        const rect = firstChild.getBoundingClientRect();
+        
+        if (rect.right < -2000) {
+          ticker.removeChild(firstChild);
+          messageCount--;
+        } else {
+          break; // Stop when we hit an item still visible
+        }
+      }
     }
 
     function updateStatus(message, isFetching = false) {
@@ -273,9 +306,6 @@
         loading.style.display = 'none';
         error.style.display = 'none';
         tickerWrapper.style.display = 'block';
-        
-        // Set initial animation speed
-        updateSpeed(currentSpeed);
       }
 
       // Append each message to ticker
@@ -316,6 +346,9 @@
         // Fetch first batch
         await fetchBatch();
 
+        // Start continuous scroll animation
+        animationFrameId = requestAnimationFrame(animateScroll);
+
         // Poll for new batches every 10 seconds
         setInterval(fetchBatch, 10000);
 
@@ -329,6 +362,13 @@
 
     // Start on page load
     window.addEventListener('load', init);
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    });
   </script>
 </body>
 </html>
