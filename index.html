@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Announcements Ticker</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: transparent; /* good for OBS overlay */
+      font-family: Arial, sans-serif;
+      font-size: 2rem;
+      white-space: nowrap;
+    }
+
+    .ticker-wrapper {
+      position: absolute;
+      top: 66vh; /* 2/3 down the screen */
+      width: 100%;
+    }
+
+    .ticker-container {
+      width: 100%;
+      position: relative;
+    }
+
+    .ticker {
+      display: inline-block;
+      animation: scroll 45s linear infinite;
+    }
+
+    .item {
+      margin-right: 4rem;
+    }
+
+    .item:empty {
+      display: none;
+    }
+
+    .item.emoji {
+      font-size: 2.6rem;
+      margin-right: 3rem;
+    }
+
+    @keyframes scroll {
+      from { transform: translateX(100vw); }
+      to { transform: translateX(-200%); }
+    }
+
+    /* Loading indicator */
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5rem;
+      color: #666;
+    }
+
+    /* Refresh button (bottom right corner) */
+    .refresh-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+
+    .refresh-btn:hover {
+      opacity: 1;
+    }
+
+    .refresh-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Error message */
+    .error {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.2rem;
+      color: #d32f2f;
+      text-align: center;
+      max-width: 80%;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">Loading announcements...</div>
+  <div class="error" id="error" style="display: none;"></div>
+  
+  <div class="ticker-wrapper" id="tickerWrapper" style="display: none;">
+    <div class="ticker-container">
+      <div class="ticker" id="ticker"></div>
+    </div>
+  </div>
+
+  <button class="refresh-btn" onclick="loadMessages()">↻ Refresh</button>
+
+  <script>
+    // ⚠️ REPLACE THIS WITH YOUR APPS SCRIPT WEB APP URL
+    const API_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
+
+    // Check if emojis list contains this text
+    const EMOJIS = [
+      "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
+      "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
+      "😎","💛","🎭","🎯","📝"
+    ];
+
+    function isEmoji(text) {
+      return EMOJIS.includes(text);
+    }
+
+    async function loadMessages() {
+      const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+      const tickerWrapper = document.getElementById('tickerWrapper');
+      const ticker = document.getElementById('ticker');
+
+      // Show loading
+      loading.style.display = 'block';
+      error.style.display = 'none';
+      tickerWrapper.style.display = 'none';
+
+      try {
+        const response = await fetch(`${API_URL}?action=getMessages`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+
+        if (!data.messages || data.messages.length === 0) {
+          throw new Error('No messages received from server');
+        }
+
+        // Clear existing ticker
+        ticker.innerHTML = '';
+
+        // Add each message/emoji
+        data.messages.forEach(item => {
+          const span = document.createElement('span');
+          span.className = isEmoji(item) ? 'item emoji' : 'item';
+          span.textContent = item;
+          ticker.appendChild(span);
+        });
+
+        // Hide loading, show ticker
+        loading.style.display = 'none';
+        tickerWrapper.style.display = 'block';
+
+        console.log(`Loaded ${data.messages.length} items at ${data.timestamp}`);
+
+      } catch (err) {
+        console.error('Error loading messages:', err);
+        loading.style.display = 'none';
+        error.textContent = `Error loading announcements: ${err.message}\n\nMake sure you've updated API_URL in the HTML file.`;
+        error.style.display = 'block';
+      }
+    }
+
+    // Load on page load
+    window.addEventListener('load', loadMessages);
+
+    // Optional: Auto-refresh every 30 seconds (uncomment if desired)
+    // setInterval(loadMessages, 30000);
+  </script>
+</body>
+</html>
