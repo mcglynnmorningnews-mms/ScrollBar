@@ -28,13 +28,8 @@
 
     .ticker {
       display: flex;
-      width: fit-content;
-      animation: scroll-seamless 60s linear infinite;
-    }
-
-    .ticker-content {
-      display: flex;
-      flex-shrink: 0;
+      align-items: center;
+      animation: scroll-continuous 1s linear infinite;
     }
 
     .item {
@@ -52,10 +47,10 @@
       margin-right: 3rem;
     }
 
-    /* Seamless infinite scroll - moves exactly 50% */
-    @keyframes scroll-seamless {
+    /* Continuous scroll - moves left forever */
+    @keyframes scroll-continuous {
       0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+      100% { transform: translateX(-100px); }
     }
 
     /* Loading indicator */
@@ -68,29 +63,81 @@
       color: #666;
     }
 
-    /* Refresh button (bottom right corner) */
-    .refresh-btn {
+    /* Controls panel */
+    .controls {
       position: fixed;
       bottom: 20px;
       right: 20px;
-      padding: 10px 20px;
-      background: #4285f4;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      font-size: 1rem;
-      cursor: pointer;
-      opacity: 0.7;
-      transition: opacity 0.2s;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
       z-index: 1000;
+      min-width: 250px;
     }
 
-    .refresh-btn:hover {
-      opacity: 1;
+    .controls-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+      font-weight: bold;
+      color: #333;
     }
 
-    .refresh-btn:active {
-      transform: scale(0.95);
+    .toggle-btn {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 0;
+      color: #666;
+    }
+
+    .controls-content {
+      font-size: 0.85rem;
+    }
+
+    .control-group {
+      margin-bottom: 12px;
+    }
+
+    .control-label {
+      display: block;
+      color: #555;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+
+    .speed-slider {
+      width: 100%;
+      margin-bottom: 5px;
+    }
+
+    .speed-value {
+      text-align: center;
+      color: #666;
+      font-size: 0.8rem;
+    }
+
+    .status {
+      padding: 8px;
+      background: #e8f5e9;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      color: #2e7d32;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .status.fetching {
+      background: #fff3e0;
+      color: #e65100;
+    }
+
+    .controls.minimized .controls-content {
+      display: none;
     }
 
     /* Error message */
@@ -113,42 +160,83 @@
   <div class="ticker-wrapper" id="tickerWrapper" style="display: none;">
     <div class="ticker-container">
       <div class="ticker" id="ticker">
-        <!-- Content will be duplicated here for seamless loop -->
+        <!-- Messages appended here continuously -->
       </div>
     </div>
   </div>
 
-  <button class="refresh-btn" onclick="loadMessages()">↻ Refresh</button>
+  <div class="controls" id="controls">
+    <div class="controls-header">
+      <span>⚙️ Controls</span>
+      <button class="toggle-btn" onclick="toggleControls()">−</button>
+    </div>
+    <div class="controls-content">
+      <div class="control-group">
+        <label class="control-label">Scroll Speed</label>
+        <input 
+          type="range" 
+          min="20" 
+          max="200" 
+          value="100" 
+          class="speed-slider" 
+          id="speedSlider"
+          oninput="updateSpeed(this.value)"
+        />
+        <div class="speed-value" id="speedValue">Normal (100px/s)</div>
+      </div>
+      <div class="status" id="status">Ready</div>
+    </div>
+  </div>
 
   <script>
-    // ⚠️ REPLACE THIS WITH YOUR APPS SCRIPT WEB APP URL
     const API_URL = 'https://script.google.com/macros/s/AKfycbyKo_ch6YnxnKmYj5rPHEAvffcpqOWlZMeszkly_eHr4U1sqesUZguWvQDWeWWA8JZq/exec';
 
-    // Check if emojis list contains this text
-    const EMOJIS = [
-      "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
-      "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
-      "😎","💛","🎭","🎯","📝"
-    ];
+    // State
+    let currentSpeed = 100; // pixels per second
+    let isFetching = false;
+    let messageCount = 0;
+    let lastFetchTime = 0;
 
-    function isEmoji(text) {
-      return EMOJIS.includes(text);
+    function toggleControls() {
+      const controls = document.getElementById('controls');
+      const btn = controls.querySelector('.toggle-btn');
+      controls.classList.toggle('minimized');
+      btn.textContent = controls.classList.contains('minimized') ? '+' : '−';
     }
 
-    async function loadMessages() {
-      const loading = document.getElementById('loading');
-      const error = document.getElementById('error');
-      const tickerWrapper = document.getElementById('tickerWrapper');
+    function updateSpeed(value) {
+      currentSpeed = parseInt(value);
       const ticker = document.getElementById('ticker');
+      const speedValue = document.getElementById('speedValue');
+      
+      // Update display
+      let label = 'Normal';
+      if (value < 70) label = 'Very Slow';
+      else if (value < 90) label = 'Slow';
+      else if (value > 130) label = 'Very Fast';
+      else if (value > 110) label = 'Fast';
+      
+      speedValue.textContent = `${label} (${value}px/s)`;
+      
+      // Update animation speed
+      const duration = 100 / currentSpeed; // time to move 100px
+      ticker.style.animation = `scroll-continuous ${duration}s linear infinite`;
+    }
 
-      // Show loading only on first load
-      if (ticker.children.length === 0) {
-        loading.style.display = 'block';
-      }
-      error.style.display = 'none';
+    function updateStatus(message, isFetching = false) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = isFetching ? 'status fetching' : 'status';
+    }
+
+    async function fetchBatch() {
+      if (isFetching) return;
+      
+      isFetching = true;
+      updateStatus('Fetching new messages...', true);
 
       try {
-        const response = await fetch(`${API_URL}?action=getMessages`);
+        const response = await fetch(`${API_URL}?action=getBatch&_=${Date.now()}`);
         
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -157,49 +245,90 @@
         const data = await response.json();
 
         if (!data.messages || data.messages.length === 0) {
-          throw new Error('No messages received from server');
+          throw new Error('No messages received');
         }
 
-        // Clear existing ticker
-        ticker.innerHTML = '';
-
-        // Create the content once
-        const content1 = document.createElement('div');
-        content1.className = 'ticker-content';
+        appendMessages(data.messages);
+        lastFetchTime = Date.now();
         
-        data.messages.forEach(item => {
-          const span = document.createElement('span');
-          span.className = isEmoji(item) ? 'item emoji' : 'item';
-          span.textContent = item;
-          content1.appendChild(span);
-        });
-
-        // Duplicate the content for seamless loop
-        const content2 = content1.cloneNode(true);
-
-        // Add both to ticker
-        ticker.appendChild(content1);
-        ticker.appendChild(content2);
-
-        // Hide loading, show ticker
-        loading.style.display = 'none';
-        tickerWrapper.style.display = 'block';
-
-        console.log(`Loaded ${data.messages.length} items at ${data.timestamp}`);
+        updateStatus(`Loaded ${data.messages.length} messages • ${messageCount} total`, false);
+        console.log(`Fetched batch: ${data.messages.length} messages at ${data.timestamp}`);
 
       } catch (err) {
-        console.error('Error loading messages:', err);
+        console.error('Error fetching batch:', err);
+        updateStatus('Error fetching messages', false);
+      } finally {
+        isFetching = false;
+      }
+    }
+
+    function appendMessages(messages) {
+      const ticker = document.getElementById('ticker');
+      const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+      const tickerWrapper = document.getElementById('tickerWrapper');
+
+      // First batch - hide loading, show ticker
+      if (messageCount === 0) {
         loading.style.display = 'none';
-        error.textContent = `Error loading announcements: ${err.message}\n\nMake sure you've updated API_URL in the HTML file.`;
+        error.style.display = 'none';
+        tickerWrapper.style.display = 'block';
+        
+        // Set initial animation speed
+        updateSpeed(currentSpeed);
+      }
+
+      // Append each message to ticker
+      messages.forEach(text => {
+        const span = document.createElement('span');
+        span.className = isEmoji(text) ? 'item emoji' : 'item';
+        span.textContent = text;
+        ticker.appendChild(span);
+        messageCount++;
+      });
+    }
+
+    function isEmoji(text) {
+      const EMOJIS = [
+        "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
+        "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
+        "😎","💛","🎭","🎯","📝"
+      ];
+      return EMOJIS.includes(text);
+    }
+
+    // Check if we need more messages
+    function checkNeedMore() {
+      const ticker = document.getElementById('ticker');
+      
+      // If ticker is running and we haven't fetched in 10 seconds, get more
+      if (messageCount > 0 && Date.now() - lastFetchTime > 10000 && !isFetching) {
+        fetchBatch();
+      }
+    }
+
+    // Initialize
+    async function init() {
+      const loading = document.getElementById('loading');
+      const error = document.getElementById('error');
+
+      try {
+        // Fetch first batch
+        await fetchBatch();
+
+        // Poll for new batches every 10 seconds
+        setInterval(fetchBatch, 10000);
+
+      } catch (err) {
+        console.error('Initialization error:', err);
+        loading.style.display = 'none';
+        error.textContent = `Error loading announcements: ${err.message}\n\nMake sure the Apps Script is deployed correctly.`;
         error.style.display = 'block';
       }
     }
 
-    // Load on page load
-    window.addEventListener('load', loadMessages);
-
-    // Auto-refresh every 30 seconds to catch new teacher submissions
-    setInterval(loadMessages, 30000);
+    // Start on page load
+    window.addEventListener('load', init);
   </script>
 </body>
 </html>
