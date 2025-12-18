@@ -142,6 +142,84 @@
       text-align: center;
       max-width: 80%;
     }
+
+    .debug-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0, 0, 0, 0.95);
+      color: white;
+      padding: 20px;
+      max-height: 40vh;
+      overflow-y: auto;
+      border-top: 3px solid #4285f4;
+      font-size: 0.75rem;
+    }
+
+    .debug-panel h2 {
+      margin: 0 0 15px 0;
+      font-size: 1rem;
+      color: #4285f4;
+    }
+
+    .debug-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .debug-column {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
+      border-radius: 5px;
+    }
+
+    .debug-column h3 {
+      margin: 0 0 10px 0;
+      font-size: 0.85rem;
+      color: #ffd700;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+      padding-bottom: 5px;
+    }
+
+    .message-list {
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .message-item {
+      padding: 8px;
+      margin-bottom: 5px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+      border-left: 3px solid #4285f4;
+      font-size: 0.7rem;
+      line-height: 1.4;
+    }
+
+    .message-item.teacher {
+      border-left-color: #34a853;
+    }
+
+    .message-item.student {
+      border-left-color: #fbbc04;
+    }
+
+    .message-item.bank {
+      border-left-color: #ea4335;
+    }
+
+    .message-meta {
+      color: #aaa;
+      font-size: 0.65rem;
+      margin-top: 3px;
+    }
+
+    .message-count {
+      color: #4285f4;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -177,8 +255,26 @@
     </div>
   </div>
 
+  <div class="debug-panel" id="debugPanel">
+    <h2>🔍 Message Debug Panel</h2>
+    <div class="debug-grid">
+      <div class="debug-column">
+        <h3>Bank Messages (${BANK.length})</h3>
+        <div class="message-list" id="bankList"></div>
+      </div>
+      <div class="debug-column">
+        <h3>Teacher Messages (<span id="teacherCount">0</span>)</h3>
+        <div class="message-list" id="teacherList"></div>
+      </div>
+      <div class="debug-column">
+        <h3>Student Messages (<span id="studentCount">0</span>)</h3>
+        <div class="message-list" id="studentList"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbw_bPJ8pjSZXYeunBZJ2Zj56H4bQbgC2UbI9TF75h2pKXODS2MdZbAySJvuaKff_b2O/exec';
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwFTTet0ZES5S3ye_QDIgMU5JvZqod7R4qDS7D8AgygKfY2gSU4Du0A9glHebhjNT0/exec';
 
     // Hardcoded Bank Messages
     const BANK = [
@@ -251,6 +347,50 @@
       const status = document.getElementById('status');
       status.textContent = message;
       status.className = isFetching ? 'status fetching' : 'status';
+    }
+
+    function updateDebugPanel() {
+      // Update counts
+      document.getElementById('teacherCount').textContent = teacherMessages.length;
+      document.getElementById('studentCount').textContent = studentMessages.length;
+
+      // Update bank list
+      const bankList = document.getElementById('bankList');
+      bankList.innerHTML = BANK.map(msg => `
+        <div class="message-item bank">${msg}</div>
+      `).join('');
+
+      // Update teacher list
+      const teacherList = document.getElementById('teacherList');
+      if (teacherMessages.length === 0) {
+        teacherList.innerHTML = '<div style="color: #999; padding: 10px;">No teacher messages loaded</div>';
+      } else {
+        teacherList.innerHTML = teacherMessages.map(t => `
+          <div class="message-item teacher">
+            <strong>${t.name}</strong>: ${t.message.substring(0, 80)}${t.message.length > 80 ? '...' : ''}
+            <div class="message-meta">
+              Shown: <span class="message-count">${t.timesShown}</span> times | 
+              ${new Date(t.timestamp).toLocaleString()}
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // Update student list
+      const studentList = document.getElementById('studentList');
+      if (studentMessages.length === 0) {
+        studentList.innerHTML = '<div style="color: #999; padding: 10px;">No student messages loaded</div>';
+      } else {
+        studentList.innerHTML = studentMessages.map(s => `
+          <div class="message-item student">
+            <strong>${s.name}</strong>: ${s.message.substring(0, 80)}${s.message.length > 80 ? '...' : ''}
+            <div class="message-meta">
+              ${s.shown ? '✓ Already shown' : '○ Not shown yet'} | 
+              ${new Date(s.timestamp).toLocaleString()}
+            </div>
+          </div>
+        `).join('');
+      }
     }
 
     // Weighted probability algorithm
@@ -478,6 +618,9 @@
         
         console.log(`Loaded ${totalMessages} submissions from backend`);
         
+        // Update debug panel
+        updateDebugPanel();
+        
       } catch (err) {
         console.error('Error fetching initial messages:', err);
         updateStatus('Using bank messages only', false);
@@ -533,6 +676,9 @@
         if (newCount > 0) {
           console.log(`Polled ${newCount} new messages`);
           updateStatus(`+${newCount} new • ${teacherMessages.length}T ${studentMessages.length}S`, false);
+          
+          // Update debug panel
+          updateDebugPanel();
         }
         
       } catch (err) {
@@ -564,7 +710,13 @@
         // Poll for new messages every 20 seconds
         setInterval(pollNewMessages, 20000);
         
+        // Update debug panel every 5 seconds to show timesShown changes
+        setInterval(updateDebugPanel, 5000);
+        
         updateStatus(`Ready • ${teacherMessages.length}T ${studentMessages.length}S`, false);
+        
+        // Initial debug panel update
+        updateDebugPanel();
         
       } catch (err) {
         console.error('Initialization error:', err);
@@ -577,6 +729,9 @@
         appendMessages(initialBatch);
         tickerWrapper.style.display = 'block';
         animationFrameId = requestAnimationFrame(animateScroll);
+        
+        // Update debug panel to show bank messages
+        updateDebugPanel();
       }
     }
 
