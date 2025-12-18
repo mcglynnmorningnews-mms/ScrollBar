@@ -210,7 +210,9 @@
     const EMOJIS = [
       "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
       "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
-      "😎","💛","🎭","🎯","📝"
+      "😎","💛","🎭","🎯","📝","🎓","📚","✏️","📖","🏫",
+      "🎒","💡","🌈","⚡","🎨","🏅","🌺","🦋","🌻","🍎",
+      "🐝","🎪","🔔","🎵","🦄"
     ];
 
     // State
@@ -223,6 +225,7 @@
     let messageQueue = [];
     let lastPollTime = Date.now();
     let minBufferSize = 60; // Minimum messages in DOM
+    let lastBufferCheck = 0; // Throttle buffer checks
 
     function toggleControls() {
       const controls = document.getElementById('controls');
@@ -341,15 +344,12 @@
       return { text: EMOJIS[Math.floor(Math.random() * EMOJIS.length)], type: 'emoji' };
     }
 
-    // Generate batch of messages
+    // Generate batch of messages with emojis between each message
     function generateBatch(count = 40) {
       const batch = [];
       for (let i = 0; i < count; i++) {
-        // Add emoji occasionally (20% chance)
-        if (Math.random() < 0.2) {
-          batch.push(pickEmoji());
-        }
         batch.push(getNextMessage());
+        batch.push(pickEmoji()); // Always add emoji after each message
       }
       return batch;
     }
@@ -374,14 +374,22 @@
         lastFrameTime = timestamp;
       }
       
-      const deltaTime = (timestamp - lastFrameTime) / 1000;
+      let deltaTime = (timestamp - lastFrameTime) / 1000;
       lastFrameTime = timestamp;
+      
+      // Cap deltaTime to prevent huge jumps after pauses (e.g., tab switch, OBS scene change)
+      deltaTime = Math.min(deltaTime, 0.1); // Maximum 100ms per frame
       
       scrollPosition += currentSpeed * deltaTime;
       ticker.style.transform = `translateX(-${scrollPosition}px)`;
       
       cleanupOffscreenItems();
-      checkBuffer();
+      
+      // Throttle buffer check to every 200ms instead of every frame
+      if (timestamp - lastBufferCheck > 200) {
+        checkBuffer();
+        lastBufferCheck = timestamp;
+      }
       
       animationFrameId = requestAnimationFrame(animateScroll);
     }
@@ -390,14 +398,25 @@
       const ticker = document.getElementById('ticker');
       const children = ticker.children;
       
+      // Remove items that are completely off the left side of the screen
       while (children.length > 0) {
         const firstChild = children[0];
         const rect = firstChild.getBoundingClientRect();
         
+        // Check if item is more than 2000px off the left side
         if (rect.right < -2000) {
+          // CRITICAL: Adjust scrollPosition by the width of the removed item
+          // This prevents scrollPosition from growing infinitely
+          const itemWidth = firstChild.offsetWidth;
+          const marginRight = parseFloat(window.getComputedStyle(firstChild).marginRight) || 0;
+          const totalWidth = itemWidth + marginRight;
+          
+          // Subtract the removed item's width from scroll position
+          scrollPosition = Math.max(0, scrollPosition - totalWidth);
+          
           ticker.removeChild(firstChild);
         } else {
-          break;
+          break; // Stop when we hit an item still visible
         }
       }
     }
@@ -406,11 +425,13 @@
       const ticker = document.getElementById('ticker');
       const currentCount = ticker.children.length;
       
-      // If buffer is low, generate more messages
+      // Only refill if buffer is actually low (prevents over-generation)
       if (currentCount < minBufferSize) {
-        const needed = minBufferSize - currentCount + 20;
-        const newMessages = generateBatch(needed);
+        const needed = minBufferSize - currentCount + 20; // Add extra buffer
+        const newMessages = generateBatch(Math.ceil(needed / 2)); // Each batch has message + emoji
         appendMessages(newMessages);
+        
+        console.log(`Buffer low (${currentCount}), added ${newMessages.length} items`);
       }
     }
 
