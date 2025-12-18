@@ -320,7 +320,7 @@
     let lastFrameTime = null;
     let messageQueue = [];
     let lastPollTime = Date.now();
-    let minBufferSize = 60; // Minimum messages in DOM
+    let minBufferSize = 40; // Minimum messages in DOM (reduced for faster updates)
     let lastBufferCheck = 0; // Throttle buffer checks
 
     function toggleControls() {
@@ -654,6 +654,19 @@
             });
             newCount++;
           });
+          
+          // 🚨 FAST UPDATE: Clear buffer and regenerate to include new teachers
+          const ticker = document.getElementById('ticker');
+          const currentBufferSize = ticker.children.length;
+          
+          // Only clear if buffer is large (prevents flicker during normal operation)
+          if (currentBufferSize > 40) {
+            console.log('🔥 NEW TEACHER DETECTED - Forcing buffer refresh');
+            ticker.innerHTML = ''; // Clear old messages
+            const freshBatch = generateBatch(40); // Generate fresh batch with new teacher
+            appendMessages(freshBatch);
+            console.log('✅ Buffer refreshed - new teacher will appear within 30 seconds');
+          }
         }
         
         // Add new student messages
@@ -669,6 +682,25 @@
             });
             newCount++;
           });
+          
+          // 🚨 FAST UPDATE: Refresh buffer for new students (if all teachers shown)
+          const allTeachersShown = teacherMessages.length === 0 || 
+                                   teacherMessages.every(t => t.timesShown > 0);
+          
+          if (allTeachersShown) {
+            const ticker = document.getElementById('ticker');
+            const currentBufferSize = ticker.children.length;
+            
+            if (currentBufferSize > 40) {
+              console.log('🔥 NEW STUDENT DETECTED - Forcing buffer refresh');
+              ticker.innerHTML = '';
+              const freshBatch = generateBatch(40);
+              appendMessages(freshBatch);
+              console.log('✅ Buffer refreshed - new student will appear within 30 seconds');
+            }
+          } else {
+            console.log('⚠️ New student added but waiting for all teachers to be shown first');
+          }
         }
         
         lastPollTime = Date.now();
@@ -707,8 +739,8 @@
         // Start continuous scroll
         animationFrameId = requestAnimationFrame(animateScroll);
         
-        // Poll for new messages every 20 seconds
-        setInterval(pollNewMessages, 20000);
+        // Poll for new messages every 10 seconds (faster updates for live show)
+        setInterval(pollNewMessages, 10000);
         
         // Update debug panel every 5 seconds to show timesShown changes
         setInterval(updateDebugPanel, 5000);
