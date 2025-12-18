@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DEBUG - Announcements Ticker</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #000;
+      color: #0f0;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+    
+    h1 {
+      color: #0f0;
+      border-bottom: 2px solid #0f0;
+      padding-bottom: 10px;
+    }
+    
+    .debug-section {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #0f0;
+      background: rgba(0, 255, 0, 0.05);
+    }
+    
+    .debug-section h2 {
+      margin-top: 0;
+      color: #ff0;
+    }
+    
+    .success {
+      color: #0f0;
+    }
+    
+    .error {
+      color: #f00;
+    }
+    
+    .warning {
+      color: #ff0;
+    }
+    
+    pre {
+      background: #111;
+      padding: 10px;
+      overflow-x: auto;
+      border-left: 3px solid #0f0;
+    }
+    
+    button {
+      background: #0f0;
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+    }
+    
+    button:hover {
+      background: #0ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 FRONTEND DEBUG MODE</h1>
+  
+  <div class="debug-section">
+    <h2>1. API Configuration</h2>
+    <div id="apiConfig"></div>
+  </div>
+  
+  <div class="debug-section">
+    <h2>2. Network Tests</h2>
+    <button onclick="testGetInitial()">Test getInitial</button>
+    <button onclick="testGetNew()">Test getNew</button>
+    <button onclick="testRawFetch()">Test Raw Fetch</button>
+    <div id="networkTests"></div>
+  </div>
+  
+  <div class="debug-section">
+    <h2>3. Data Received</h2>
+    <div id="dataReceived"></div>
+  </div>
+  
+  <div class="debug-section">
+    <h2>4. Console Log (check browser console for more)</h2>
+    <pre id="consoleLog">Press F12 to open browser console for full logs...</pre>
+  </div>
+
+  <script>
+    // Your actual API URL
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwFTTet0ZES5S3ye_QDIgMU5JvZqod7R4qDS7D8AgygKfY2gSU4Du0A9glHebhjNT0/exec';
+    
+    // Display API config
+    document.getElementById('apiConfig').innerHTML = `
+      <div class="success">API_URL: ${API_URL}</div>
+      <div>Time: ${new Date().toISOString()}</div>
+    `;
+    
+    // Log to page and console
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString();
+      const logDiv = document.getElementById('consoleLog');
+      const color = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+      logDiv.innerHTML += `<div class="${color}">[${timestamp}] ${message}</div>`;
+      console.log(`[${timestamp}] ${message}`);
+    }
+    
+    // Test getInitial
+    async function testGetInitial() {
+      log('=== Testing getInitial ===', 'warning');
+      const resultsDiv = document.getElementById('networkTests');
+      resultsDiv.innerHTML = '<div class="warning">Testing getInitial endpoint...</div>';
+      
+      try {
+        log('Fetching: ' + API_URL + '?action=getInitial');
+        const response = await fetch(`${API_URL}?action=getInitial&_=${Date.now()}`);
+        
+        log('Response status: ' + response.status);
+        log('Response ok: ' + response.ok);
+        log('Response headers: ' + JSON.stringify([...response.headers.entries()]));
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const text = await response.text();
+        log('Raw response text (first 500 chars): ' + text.substring(0, 500));
+        
+        let data;
+        try {
+          data = JSON.parse(text);
+          log('✅ Successfully parsed JSON', 'success');
+        } catch (parseErr) {
+          log('❌ Failed to parse JSON: ' + parseErr.message, 'error');
+          resultsDiv.innerHTML = `<pre class="error">JSON Parse Error:\n${parseErr.message}\n\nRaw response:\n${text}</pre>`;
+          return;
+        }
+        
+        log('Data received: ' + JSON.stringify(data, null, 2));
+        
+        // Display results
+        resultsDiv.innerHTML = `
+          <div class="success">✅ getInitial SUCCESS</div>
+          <div>Teachers: ${data.teachers ? data.teachers.length : 0}</div>
+          <div>Students: ${data.students ? data.students.length : 0}</div>
+          <div>Timestamp: ${data.timestamp}</div>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+        `;
+        
+        // Update data received section
+        displayData(data);
+        
+      } catch (err) {
+        log('❌ ERROR: ' + err.message, 'error');
+        log('Stack: ' + err.stack, 'error');
+        resultsDiv.innerHTML = `<pre class="error">Error:\n${err.message}\n\n${err.stack}</pre>`;
+      }
+    }
+    
+    // Test getNew
+    async function testGetNew() {
+      log('=== Testing getNew ===', 'warning');
+      const resultsDiv = document.getElementById('networkTests');
+      resultsDiv.innerHTML = '<div class="warning">Testing getNew endpoint...</div>';
+      
+      const since = Date.now() - (5 * 60 * 1000); // 5 minutes ago
+      
+      try {
+        log('Fetching: ' + API_URL + '?action=getNew&since=' + since);
+        const response = await fetch(`${API_URL}?action=getNew&since=${since}&_=${Date.now()}`);
+        
+        log('Response status: ' + response.status);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        log('Data received: ' + JSON.stringify(data, null, 2));
+        
+        resultsDiv.innerHTML = `
+          <div class="success">✅ getNew SUCCESS</div>
+          <div>New Teachers: ${data.teachers ? data.teachers.length : 0}</div>
+          <div>New Students: ${data.students ? data.students.length : 0}</div>
+          <pre>${JSON.stringify(data, null, 2)}</pre>
+        `;
+        
+      } catch (err) {
+        log('❌ ERROR: ' + err.message, 'error');
+        resultsDiv.innerHTML = `<pre class="error">Error:\n${err.message}</pre>`;
+      }
+    }
+    
+    // Test raw fetch
+    async function testRawFetch() {
+      log('=== Testing Raw Fetch (no params) ===', 'warning');
+      const resultsDiv = document.getElementById('networkTests');
+      resultsDiv.innerHTML = '<div class="warning">Testing raw fetch...</div>';
+      
+      try {
+        log('Fetching: ' + API_URL);
+        const response = await fetch(API_URL);
+        
+        log('Response status: ' + response.status);
+        log('Response ok: ' + response.ok);
+        
+        const text = await response.text();
+        log('Raw response: ' + text);
+        
+        resultsDiv.innerHTML = `
+          <div class="success">✅ Raw fetch completed</div>
+          <div>Status: ${response.status}</div>
+          <pre>${text}</pre>
+        `;
+        
+      } catch (err) {
+        log('❌ ERROR: ' + err.message, 'error');
+        resultsDiv.innerHTML = `<pre class="error">Error:\n${err.message}</pre>`;
+      }
+    }
+    
+    // Display parsed data
+    function displayData(data) {
+      const dataDiv = document.getElementById('dataReceived');
+      
+      let html = '';
+      
+      if (data.teachers && data.teachers.length > 0) {
+        html += '<h3 class="success">Teachers (' + data.teachers.length + '):</h3>';
+        data.teachers.forEach((t, i) => {
+          html += `<div>
+            ${i + 1}. <strong>${t.name}</strong><br>
+            &nbsp;&nbsp;Message: "${t.message}"<br>
+            &nbsp;&nbsp;Email: ${t.email}<br>
+            &nbsp;&nbsp;Time: ${t.timestamp}
+          </div><br>`;
+        });
+      } else {
+        html += '<div class="error">❌ No teacher messages!</div>';
+      }
+      
+      html += '<hr>';
+      
+      if (data.students && data.students.length > 0) {
+        html += '<h3 class="success">Students (' + data.students.length + '):</h3>';
+        data.students.forEach((s, i) => {
+          html += `<div>
+            ${i + 1}. <strong>${s.name}</strong><br>
+            &nbsp;&nbsp;Message: "${s.message}"<br>
+            &nbsp;&nbsp;Email: ${s.email}<br>
+            &nbsp;&nbsp;Time: ${s.timestamp}
+          </div><br>`;
+        });
+      } else {
+        html += '<div class="warning">⚠️ No student messages</div>';
+      }
+      
+      dataDiv.innerHTML = html;
+    }
+    
+    // Auto-run on load
+    log('Page loaded. Click buttons to test endpoints.', 'success');
+    log('Or check your browser console (F12) for automatic tests...');
+    
+    // Auto-test on load
+    setTimeout(() => {
+      log('Auto-running getInitial test in 1 second...');
+      setTimeout(testGetInitial, 1000);
+    }, 100);
+  </script>
+</body>
+</html>
