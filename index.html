@@ -458,12 +458,12 @@
         rand -= weights[i];
         if (rand <= 0) {
           pool[i].timesShown++;
-          return { text: pool[i].message, type: 'teacher' };
+          return { text: `${pool[i].message} - ${pool[i].name}`, type: 'teacher' };
         }
       }
       
       pool[0].timesShown++;
-      return { text: pool[0].message, type: 'teacher' };
+      return { text: `${pool[0].message} - ${pool[0].name}`, type: 'teacher' };
     }
 
     function pickStudentMessage() {
@@ -472,7 +472,7 @@
       
       const student = available[Math.floor(Math.random() * available.length)];
       student.shown = true;
-      return { text: student.message, type: 'student' };
+      return { text: `${student.message} - ${student.name}`, type: 'student' };
     }
 
     function pickBankMessage() {
