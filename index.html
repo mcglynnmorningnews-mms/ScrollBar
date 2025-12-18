@@ -8,7 +8,7 @@
     body {
       margin: 0;
       overflow: hidden;
-      background: transparent; /* good for OBS overlay */
+      background: transparent;
       font-family: Arial, sans-serif;
       font-size: 2rem;
       white-space: nowrap;
@@ -16,7 +16,7 @@
 
     .ticker-wrapper {
       position: absolute;
-      top: 33vh; /* 1/3 down the screen */
+      top: 33vh;
       width: 100%;
     }
 
@@ -47,7 +47,6 @@
       margin-right: 3rem;
     }
 
-    /* Loading indicator */
     .loading {
       position: absolute;
       top: 50%;
@@ -57,7 +56,6 @@
       color: #666;
     }
 
-    /* Controls panel */
     .controls {
       position: fixed;
       bottom: 20px;
@@ -134,7 +132,6 @@
       display: none;
     }
 
-    /* Error message */
     .error {
       position: absolute;
       top: 50%;
@@ -148,14 +145,12 @@
   </style>
 </head>
 <body>
-  <div class="loading" id="loading">Loading announcements...</div>
+  <div class="loading" id="loading">Starting ticker...</div>
   <div class="error" id="error" style="display: none;"></div>
   
   <div class="ticker-wrapper" id="tickerWrapper" style="display: none;">
     <div class="ticker-container">
-      <div class="ticker" id="ticker">
-        <!-- Messages appended here continuously -->
-      </div>
+      <div class="ticker" id="ticker"></div>
     </div>
   </div>
 
@@ -178,21 +173,56 @@
         />
         <div class="speed-value" id="speedValue">Normal (100px/s)</div>
       </div>
-      <div class="status" id="status">Ready</div>
+      <div class="status" id="status">Initializing...</div>
     </div>
   </div>
 
   <script>
     const API_URL = 'https://script.google.com/macros/s/AKfycbwFTTet0ZES5S3ye_QDIgMU5JvZqod7R4qDS7D8AgygKfY2gSU4Du0A9glHebhjNT0/exec';
 
+    // Hardcoded Bank Messages
+    const BANK = [
+      "Bring your ACE every day!",
+      "Every day is a chance to learn something new!",
+      "Together we achieve more",
+      "Dream big, work hard, stay focused",
+      "Choose kindness always",
+      "Your future starts today",
+      "Learning today, leading tomorrow",
+      "Respect yourself, respect others, respect learning",
+      "Excellence is our standard",
+      "Be here, be ready, be respectful",
+      "Small steps lead to big success",
+      "Growth happens outside your comfort zone",
+      "Celebrate progress, not perfection",
+      "Your attitude determines your altitude",
+      "Make today count",
+      "We rise by lifting others",
+      "The Mustang Way is our way",
+      "Effort and attitude are everything",
+      "Success is a journey, not a destination",
+      "Maybe, just maybe, we will see YOU in the halls",
+      "Here at the McGlynn, we support each other",
+      "It's a GREAT day to be a Mustang",
+      "The best day to plant a tree was 20 years ago. The 2nd best day is today."
+    ];
+
+    const EMOJIS = [
+      "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
+      "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
+      "😎","💛","🎭","🎯","📝"
+    ];
+
     // State
-    let currentSpeed = 100; // pixels per second
-    let isFetching = false;
-    let messageCount = 0;
-    let lastFetchTime = 0;
+    let teacherMessages = []; // {id, message, name, email, timestamp, timesShown: 0}
+    let studentMessages = []; // {id, message, name, email, timestamp, shown: false}
+    let currentSpeed = 100;
     let scrollPosition = 0;
     let animationFrameId = null;
     let lastFrameTime = null;
+    let messageQueue = [];
+    let lastPollTime = Date.now();
+    let minBufferSize = 60; // Minimum messages in DOM
 
     function toggleControls() {
       const controls = document.getElementById('controls');
@@ -205,7 +235,6 @@
       currentSpeed = parseInt(value);
       const speedValue = document.getElementById('speedValue');
       
-      // Update display
       let label = 'Normal';
       if (value < 70) label = 'Very Slow';
       else if (value < 90) label = 'Slow';
@@ -215,7 +244,129 @@
       speedValue.textContent = `${label} (${value}px/s)`;
     }
 
-    // Continuous scroll animation using requestAnimationFrame
+    function updateStatus(message, isFetching = false) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = isFetching ? 'status fetching' : 'status';
+    }
+
+    // Weighted probability algorithm
+    function getNextMessage() {
+      const allTeachersShownOnce = teacherMessages.length === 0 || 
+                                    teacherMessages.every(t => t.timesShown > 0);
+      
+      // Priority: All teachers must be shown at least once before any students
+      if (!allTeachersShownOnce) {
+        const unshownTeachers = teacherMessages.filter(t => t.timesShown === 0);
+        return pickTeacherMessage(unshownTeachers);
+      }
+      
+      // Calculate probabilities
+      const totalSubmitted = teacherMessages.length + studentMessages.filter(s => !s.shown).length;
+      
+      // Teacher probability: starts at 60%, drops 10% per average showing, min 20%
+      const avgTimesShown = teacherMessages.length > 0 
+        ? teacherMessages.reduce((sum, t) => sum + t.timesShown, 0) / teacherMessages.length 
+        : 0;
+      let teacherProb = Math.max(0.20, 0.60 - (avgTimesShown * 0.10));
+      
+      // Student probability: 30%
+      const studentProb = 0.30;
+      
+      // Bank probability: 40% normally, 20% if 20+ submissions
+      let bankProb = totalSubmitted >= 20 ? 0.20 : 0.40;
+      
+      // Adjust if no teachers or no students available
+      if (teacherMessages.length === 0) teacherProb = 0;
+      if (studentMessages.filter(s => !s.shown).length === 0) {
+        // No students available, redistribute probability
+        const remaining = studentProb;
+        teacherProb += remaining * 0.5;
+        bankProb += remaining * 0.5;
+      }
+      
+      // Normalize probabilities
+      const total = teacherProb + studentProb + bankProb;
+      teacherProb /= total;
+      const studentProbEnd = teacherProb + (studentProb / total);
+      
+      // Pick based on probability
+      const rand = Math.random();
+      
+      if (rand < teacherProb && teacherMessages.length > 0) {
+        return pickTeacherMessage(teacherMessages);
+      } else if (rand < studentProbEnd && studentMessages.filter(s => !s.shown).length > 0) {
+        return pickStudentMessage();
+      } else {
+        return pickBankMessage();
+      }
+    }
+
+    function pickTeacherMessage(pool) {
+      if (pool.length === 0) return pickBankMessage();
+      
+      // Weighted selection: prefer messages shown fewer times
+      const maxShown = Math.max(...pool.map(t => t.timesShown));
+      const weights = pool.map(t => (maxShown - t.timesShown + 1));
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      
+      let rand = Math.random() * totalWeight;
+      for (let i = 0; i < pool.length; i++) {
+        rand -= weights[i];
+        if (rand <= 0) {
+          pool[i].timesShown++;
+          return { text: pool[i].message, type: 'teacher' };
+        }
+      }
+      
+      pool[0].timesShown++;
+      return { text: pool[0].message, type: 'teacher' };
+    }
+
+    function pickStudentMessage() {
+      const available = studentMessages.filter(s => !s.shown);
+      if (available.length === 0) return pickBankMessage();
+      
+      const student = available[Math.floor(Math.random() * available.length)];
+      student.shown = true;
+      return { text: student.message, type: 'student' };
+    }
+
+    function pickBankMessage() {
+      const message = BANK[Math.floor(Math.random() * BANK.length)];
+      return { text: message, type: 'bank' };
+    }
+
+    function pickEmoji() {
+      return { text: EMOJIS[Math.floor(Math.random() * EMOJIS.length)], type: 'emoji' };
+    }
+
+    // Generate batch of messages
+    function generateBatch(count = 40) {
+      const batch = [];
+      for (let i = 0; i < count; i++) {
+        // Add emoji occasionally (20% chance)
+        if (Math.random() < 0.2) {
+          batch.push(pickEmoji());
+        }
+        batch.push(getNextMessage());
+      }
+      return batch;
+    }
+
+    // Append messages to ticker
+    function appendMessages(messages) {
+      const ticker = document.getElementById('ticker');
+      
+      messages.forEach(msg => {
+        const span = document.createElement('span');
+        span.className = msg.type === 'emoji' ? 'item emoji' : 'item';
+        span.textContent = msg.text;
+        ticker.appendChild(span);
+      });
+    }
+
+    // Continuous scroll animation
     function animateScroll(timestamp) {
       const ticker = document.getElementById('ticker');
       
@@ -223,18 +374,15 @@
         lastFrameTime = timestamp;
       }
       
-      // Calculate time elapsed since last frame
-      const deltaTime = (timestamp - lastFrameTime) / 1000; // in seconds
+      const deltaTime = (timestamp - lastFrameTime) / 1000;
       lastFrameTime = timestamp;
       
-      // Move left based on speed and time
       scrollPosition += currentSpeed * deltaTime;
       ticker.style.transform = `translateX(-${scrollPosition}px)`;
       
-      // Remove items that have scrolled completely off screen
       cleanupOffscreenItems();
+      checkBuffer();
       
-      // Continue animation
       animationFrameId = requestAnimationFrame(animateScroll);
     }
 
@@ -242,98 +390,132 @@
       const ticker = document.getElementById('ticker');
       const children = ticker.children;
       
-      // Remove items that are more than 2000px off the left side
       while (children.length > 0) {
         const firstChild = children[0];
         const rect = firstChild.getBoundingClientRect();
         
         if (rect.right < -2000) {
           ticker.removeChild(firstChild);
-          messageCount--;
         } else {
-          break; // Stop when we hit an item still visible
+          break;
         }
       }
     }
 
-    function updateStatus(message, isFetching = false) {
-      const status = document.getElementById('status');
-      status.textContent = message;
-      status.className = isFetching ? 'status fetching' : 'status';
+    function checkBuffer() {
+      const ticker = document.getElementById('ticker');
+      const currentCount = ticker.children.length;
+      
+      // If buffer is low, generate more messages
+      if (currentCount < minBufferSize) {
+        const needed = minBufferSize - currentCount + 20;
+        const newMessages = generateBatch(needed);
+        appendMessages(newMessages);
+      }
     }
 
-    async function fetchBatch() {
-      if (isFetching) return;
-      
-      isFetching = true;
-      updateStatus('Fetching new messages...', true);
-
+    // Fetch initial messages from backend
+    async function fetchInitial() {
       try {
-        const response = await fetch(`${API_URL}?action=getBatch&_=${Date.now()}`);
+        updateStatus('Loading messages...', true);
+        const response = await fetch(`${API_URL}?action=getInitial&_=${Date.now()}`);
         
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
-
-        if (!data.messages || data.messages.length === 0) {
-          throw new Error('No messages received');
-        }
-
-        appendMessages(data.messages);
-        lastFetchTime = Date.now();
         
-        updateStatus(`Loaded ${data.messages.length} messages • ${messageCount} total`, false);
-        console.log(`Fetched batch: ${data.messages.length} messages at ${data.timestamp}`);
-
+        // Load teacher messages
+        if (data.teachers && data.teachers.length > 0) {
+          teacherMessages = data.teachers.map(t => ({
+            id: t.row,
+            message: t.message,
+            name: t.name,
+            email: t.email,
+            timestamp: new Date(t.timestamp),
+            timesShown: 0
+          }));
+        }
+        
+        // Load student messages
+        if (data.students && data.students.length > 0) {
+          studentMessages = data.students.map(s => ({
+            id: s.row,
+            message: s.message,
+            name: s.name,
+            email: s.email,
+            timestamp: new Date(s.timestamp),
+            shown: false
+          }));
+        }
+        
+        lastPollTime = Date.now();
+        
+        const totalMessages = teacherMessages.length + studentMessages.length;
+        updateStatus(`Loaded: ${teacherMessages.length} teachers, ${studentMessages.length} students`, false);
+        
+        console.log(`Loaded ${totalMessages} submissions from backend`);
+        
       } catch (err) {
-        console.error('Error fetching batch:', err);
-        updateStatus('Error fetching messages', false);
-      } finally {
-        isFetching = false;
+        console.error('Error fetching initial messages:', err);
+        updateStatus('Using bank messages only', false);
       }
     }
 
-    function appendMessages(messages) {
-      const ticker = document.getElementById('ticker');
-      const loading = document.getElementById('loading');
-      const error = document.getElementById('error');
-      const tickerWrapper = document.getElementById('tickerWrapper');
-
-      // First batch - hide loading, show ticker
-      if (messageCount === 0) {
-        loading.style.display = 'none';
-        error.style.display = 'none';
-        tickerWrapper.style.display = 'block';
-      }
-
-      // Append each message to ticker
-      messages.forEach(text => {
-        const span = document.createElement('span');
-        span.className = isEmoji(text) ? 'item emoji' : 'item';
-        span.textContent = text;
-        ticker.appendChild(span);
-        messageCount++;
-      });
-    }
-
-    function isEmoji(text) {
-      const EMOJIS = [
-        "⭐","🎉","🔥","👏","✅","💙","🌟","✨","🐾","📣",
-        "🎈","🎶","😁","🚀","💥","🤩","🏆","💫","📢","👍",
-        "😎","💛","🎭","🎯","📝"
-      ];
-      return EMOJIS.includes(text);
-    }
-
-    // Check if we need more messages
-    function checkNeedMore() {
-      const ticker = document.getElementById('ticker');
-      
-      // If ticker is running and we haven't fetched in 10 seconds, get more
-      if (messageCount > 0 && Date.now() - lastFetchTime > 10000 && !isFetching) {
-        fetchBatch();
+    // Poll for new messages
+    async function pollNewMessages() {
+      try {
+        const response = await fetch(`${API_URL}?action=getNew&since=${lastPollTime}&_=${Date.now()}`);
+        
+        if (!response.ok) {
+          console.error(`Poll error: ${response.status}`);
+          return;
+        }
+        
+        const data = await response.json();
+        
+        let newCount = 0;
+        
+        // Add new teacher messages
+        if (data.teachers && data.teachers.length > 0) {
+          data.teachers.forEach(t => {
+            teacherMessages.push({
+              id: t.row,
+              message: t.message,
+              name: t.name,
+              email: t.email,
+              timestamp: new Date(t.timestamp),
+              timesShown: 0
+            });
+            newCount++;
+          });
+        }
+        
+        // Add new student messages
+        if (data.students && data.students.length > 0) {
+          data.students.forEach(s => {
+            studentMessages.push({
+              id: s.row,
+              message: s.message,
+              name: s.name,
+              email: s.email,
+              timestamp: new Date(s.timestamp),
+              shown: false
+            });
+            newCount++;
+          });
+        }
+        
+        lastPollTime = Date.now();
+        
+        if (newCount > 0) {
+          console.log(`Polled ${newCount} new messages`);
+          updateStatus(`+${newCount} new • ${teacherMessages.length}T ${studentMessages.length}S`, false);
+        }
+        
+      } catch (err) {
+        console.error('Error polling new messages:', err);
       }
     }
 
@@ -341,22 +523,39 @@
     async function init() {
       const loading = document.getElementById('loading');
       const error = document.getElementById('error');
+      const tickerWrapper = document.getElementById('tickerWrapper');
 
       try {
-        // Fetch first batch
-        await fetchBatch();
-
-        // Start continuous scroll animation
+        // Fetch initial messages from backend
+        await fetchInitial();
+        
+        // Generate initial batch
+        const initialBatch = generateBatch(80);
+        appendMessages(initialBatch);
+        
+        // Show ticker
+        loading.style.display = 'none';
+        tickerWrapper.style.display = 'block';
+        
+        // Start continuous scroll
         animationFrameId = requestAnimationFrame(animateScroll);
-
-        // Poll for new batches every 10 seconds
-        setInterval(fetchBatch, 10000);
-
+        
+        // Poll for new messages every 20 seconds
+        setInterval(pollNewMessages, 20000);
+        
+        updateStatus(`Ready • ${teacherMessages.length}T ${studentMessages.length}S`, false);
+        
       } catch (err) {
         console.error('Initialization error:', err);
         loading.style.display = 'none';
-        error.textContent = `Error loading announcements: ${err.message}\n\nMake sure the Apps Script is deployed correctly.`;
+        error.textContent = `Error: ${err.message}\n\nTicker will run with bank messages only.`;
         error.style.display = 'block';
+        
+        // Still start with bank messages
+        const initialBatch = generateBatch(80);
+        appendMessages(initialBatch);
+        tickerWrapper.style.display = 'block';
+        animationFrameId = requestAnimationFrame(animateScroll);
       }
     }
 
