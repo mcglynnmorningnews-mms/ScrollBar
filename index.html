@@ -272,7 +272,7 @@
     <h2>🔍 Message Debug Panel</h2>
     <div class="debug-grid">
       <div class="debug-column">
-        <h3>Bank Messages (${BANK.length})</h3>
+        <h3>Bank Messages (<span id="bankCount">23</span>)</h3>
         <div class="message-list" id="bankList"></div>
       </div>
       <div class="debug-column">
@@ -346,6 +346,11 @@
     let recentMessagesBuffer = []; // Track last 10 messages to avoid consecutive repeats
     let bankDeck = []; // Shuffled deck of bank messages
     let bankDeckIndex = 0; // Current position in deck
+    
+    // NEW: Bank message tracking
+    const HARDCODED_BANK_COUNT = BANK.length; // 23 hardcoded messages
+    let sheetBankMessages = []; // Messages loaded from Google Sheet
+    let combinedBankPool = [...BANK]; // Combined pool (starts with hardcoded, grows with sheet messages)
 
     function toggleControls() {
       const controls = document.getElementById('controls');
@@ -377,12 +382,27 @@
       // Update counts
       document.getElementById('teacherCount').textContent = teacherMessages.length;
       document.getElementById('studentCount').textContent = studentMessages.length;
+      document.getElementById('bankCount').textContent = combinedBankPool.length;
 
       // Update bank list
       const bankList = document.getElementById('bankList');
-      bankList.innerHTML = BANK.map(msg => `
-        <div class="message-item bank">${msg}</div>
-      `).join('');
+      const bankHeader = `
+        <div style="color: #4285f4; margin-bottom: 10px; font-weight: bold;">
+          Total: ${combinedBankPool.length} messages
+          <br><span style="font-size: 0.85em; color: #999;">
+            (${HARDCODED_BANK_COUNT} frontend + ${sheetBankMessages.length} sheet)
+          </span>
+        </div>
+      `;
+      bankList.innerHTML = bankHeader + combinedBankPool.map((msg, idx) => {
+        const isFromSheet = idx >= HARDCODED_BANK_COUNT;
+        return `
+          <div class="message-item bank" style="${isFromSheet ? 'border-left-color: #fbbc04;' : ''}">
+            ${msg}
+            ${isFromSheet ? '<span style="color: #fbbc04; font-size: 0.65em;"> (from sheet)</span>' : ''}
+          </div>
+        `;
+      }).join('');
 
       // Update teacher list
       const teacherList = document.getElementById('teacherList');
@@ -418,7 +438,7 @@
 
       // Update algorithm info
       document.getElementById('bufferSize').textContent = recentMessagesBuffer.length;
-      document.getElementById('deckProgress').textContent = `${bankDeckIndex}/${BANK.length}`;
+      document.getElementById('deckProgress').textContent = `${bankDeckIndex}/${combinedBankPool.length}`;
       
       // Calculate current teacher probability
       const avgTimesShown = teacherMessages.length > 0 
@@ -439,13 +459,13 @@
 
     // NEW: Shuffle bank deck (Fisher-Yates algorithm)
     function shuffleBankDeck() {
-      bankDeck = [...BANK];
+      bankDeck = [...combinedBankPool]; // Use combined pool (hardcoded + sheet)
       for (let i = bankDeck.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [bankDeck[i], bankDeck[j]] = [bankDeck[j], bankDeck[i]];
       }
       bankDeckIndex = 0;
-      console.log('🔀 Bank deck shuffled - fresh rotation starting');
+      console.log(`🔀 Bank deck shuffled - ${bankDeck.length} messages (${HARDCODED_BANK_COUNT} frontend + ${sheetBankMessages.length} sheet)`);
     }
 
     // NEW: Check if message is in recent buffer
@@ -821,6 +841,55 @@
       }
     }
 
+    // Fetch and merge bank messages from Google Sheet (lazy load after initial content)
+    async function fetchAndMergeBankMessages() {
+      try {
+        console.log('📦 Fetching bank messages from sheet...');
+        const response = await fetch(`${API_URL}?action=getBank&_=${Date.now()}`);
+        
+        if (!response.ok) {
+          console.warn('Could not fetch bank messages from sheet, using frontend only');
+          return;
+        }
+        
+        const data = await response.json();
+        
+        if (!data.messages || data.messages.length === 0) {
+          console.log('📦 Bank sheet is empty, using frontend messages only');
+          return;
+        }
+        
+        // Store sheet messages
+        sheetBankMessages = data.messages;
+        
+        // Merge with hardcoded, removing duplicates (case-insensitive)
+        const hardcodedLower = BANK.map(msg => msg.toLowerCase().trim());
+        const uniqueSheetMessages = sheetBankMessages.filter(msg => {
+          const msgLower = msg.toLowerCase().trim();
+          return !hardcodedLower.includes(msgLower);
+        });
+        
+        // Create combined pool
+        combinedBankPool = [...BANK, ...uniqueSheetMessages];
+        
+        console.log(`📦 Bank messages merged:`);
+        console.log(`   Frontend: ${HARDCODED_BANK_COUNT} messages`);
+        console.log(`   Sheet: ${sheetBankMessages.length} messages (${uniqueSheetMessages.length} unique)`);
+        console.log(`   Total: ${combinedBankPool.length} messages`);
+        
+        // Reshuffle deck with new combined pool
+        // This will take effect next time the deck is exhausted
+        console.log('🔄 Bank pool updated - will reshuffle on next deck exhaustion');
+        
+        // Update debug panel
+        updateDebugPanel();
+        
+      } catch (err) {
+        console.error('Error fetching bank messages:', err);
+        console.log('Continuing with frontend bank messages only');
+      }
+    }
+
     // Initialize
     async function init() {
       const loading = document.getElementById('loading');
@@ -828,14 +897,14 @@
       const tickerWrapper = document.getElementById('tickerWrapper');
 
       try {
-        // Initialize bank deck
+        // Initialize bank deck with hardcoded messages
         shuffleBankDeck();
-        console.log('✅ Bank deck initialized and shuffled');
+        console.log('✅ Bank deck initialized with hardcoded messages');
         
-        // Fetch initial messages from backend
+        // Fetch initial messages from backend (PRIORITY: teachers + students first)
         await fetchInitial();
         
-        // Generate initial batch
+        // Generate initial batch and start ticker immediately
         const initialBatch = generateBatch(80);
         appendMessages(initialBatch);
         
@@ -845,6 +914,9 @@
         
         // Start continuous scroll
         animationFrameId = requestAnimationFrame(animateScroll);
+        
+        // 🔄 LAZY LOAD: Fetch bank messages in background (non-blocking)
+        fetchAndMergeBankMessages(); // Don't await - runs in background
         
         // Poll for new messages every 10 seconds (faster updates for live show)
         setInterval(pollNewMessages, 10000);
