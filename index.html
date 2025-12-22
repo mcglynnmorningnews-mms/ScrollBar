@@ -220,6 +220,19 @@
       color: #4285f4;
       font-weight: bold;
     }
+
+    .algorithm-info {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 10px;
+      border-radius: 5px;
+      margin-top: 15px;
+      font-size: 0.7rem;
+      line-height: 1.6;
+    }
+
+    .algorithm-info strong {
+      color: #4285f4;
+    }
   </style>
 </head>
 <body>
@@ -270,6 +283,12 @@
         <h3>Student Messages (<span id="studentCount">0</span>)</h3>
         <div class="message-list" id="studentList"></div>
       </div>
+    </div>
+    <div class="algorithm-info" id="algorithmInfo">
+      <strong>🎲 Active Algorithm:</strong><br>
+      Recent Buffer: <span id="bufferSize">0</span>/10 messages<br>
+      Bank Deck: <span id="deckProgress">0/23</span> (will reshuffle when exhausted)<br>
+      Teacher Probability: <span id="teacherProb">--</span>%
     </div>
   </div>
 
@@ -322,6 +341,11 @@
     let lastPollTime = Date.now();
     let minBufferSize = 40; // Minimum messages in DOM (reduced for faster updates)
     let lastBufferCheck = 0; // Throttle buffer checks
+
+    // NEW: Anti-repetition features
+    let recentMessagesBuffer = []; // Track last 10 messages to avoid consecutive repeats
+    let bankDeck = []; // Shuffled deck of bank messages
+    let bankDeckIndex = 0; // Current position in deck
 
     function toggleControls() {
       const controls = document.getElementById('controls');
@@ -391,9 +415,53 @@
           </div>
         `).join('');
       }
+
+      // Update algorithm info
+      document.getElementById('bufferSize').textContent = recentMessagesBuffer.length;
+      document.getElementById('deckProgress').textContent = `${bankDeckIndex}/${BANK.length}`;
+      
+      // Calculate current teacher probability
+      const avgTimesShown = teacherMessages.length > 0 
+        ? teacherMessages.reduce((sum, t) => sum + t.timesShown, 0) / teacherMessages.length 
+        : 0;
+      
+      let teacherProb;
+      if (teacherMessages.length === 1) {
+        teacherProb = Math.max(0.10, 0.60 - (avgTimesShown * 0.10));
+      } else if (teacherMessages.length <= 3) {
+        teacherProb = Math.max(0.15, 0.60 - (avgTimesShown * 0.10));
+      } else {
+        teacherProb = Math.max(0.20, 0.60 - (avgTimesShown * 0.10));
+      }
+      
+      document.getElementById('teacherProb').textContent = Math.round(teacherProb * 100);
     }
 
-    // Weighted probability algorithm
+    // NEW: Shuffle bank deck (Fisher-Yates algorithm)
+    function shuffleBankDeck() {
+      bankDeck = [...BANK];
+      for (let i = bankDeck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bankDeck[i], bankDeck[j]] = [bankDeck[j], bankDeck[i]];
+      }
+      bankDeckIndex = 0;
+      console.log('🔀 Bank deck shuffled - fresh rotation starting');
+    }
+
+    // NEW: Check if message is in recent buffer
+    function isInRecentBuffer(messageText) {
+      return recentMessagesBuffer.some(msg => msg === messageText);
+    }
+
+    // NEW: Add message to recent buffer
+    function addToRecentBuffer(messageText) {
+      recentMessagesBuffer.push(messageText);
+      if (recentMessagesBuffer.length > 10) {
+        recentMessagesBuffer.shift(); // Keep only last 10
+      }
+    }
+
+    // Weighted probability algorithm with IMPROVEMENTS
     function getNextMessage() {
       const allTeachersShownOnce = teacherMessages.length === 0 || 
                                     teacherMessages.every(t => t.timesShown > 0);
@@ -407,11 +475,22 @@
       // Calculate probabilities
       const totalSubmitted = teacherMessages.length + studentMessages.filter(s => !s.shown).length;
       
-      // Teacher probability: starts at 60%, drops 10% per average showing, min 20%
+      // IMPROVEMENT #3: Dynamic teacher probability based on pool size
       const avgTimesShown = teacherMessages.length > 0 
         ? teacherMessages.reduce((sum, t) => sum + t.timesShown, 0) / teacherMessages.length 
         : 0;
-      let teacherProb = Math.max(0.20, 0.60 - (avgTimesShown * 0.10));
+      
+      let teacherProb;
+      if (teacherMessages.length === 1) {
+        // Single teacher: max 10% to prevent overwhelming repetition
+        teacherProb = Math.max(0.10, 0.60 - (avgTimesShown * 0.10));
+      } else if (teacherMessages.length <= 3) {
+        // Small pool: max 15%
+        teacherProb = Math.max(0.15, 0.60 - (avgTimesShown * 0.10));
+      } else {
+        // Larger pool: original 20% minimum
+        teacherProb = Math.max(0.20, 0.60 - (avgTimesShown * 0.10));
+      }
       
       // Student probability: 30%
       const studentProb = 0.30;
@@ -445,6 +524,21 @@
       }
     }
 
+    // NEW: Get next message with buffer check to avoid consecutive repeats
+    function getNextMessageWithBuffer() {
+      let attempts = 0;
+      let message;
+      
+      do {
+        message = getNextMessage();
+        attempts++;
+      } while (isInRecentBuffer(message.text) && attempts < 20);
+      
+      // If we couldn't avoid buffer after 20 tries (very small pool), just use it
+      // This prevents infinite loops
+      return message;
+    }
+
     function pickTeacherMessage(pool) {
       if (pool.length === 0) return pickBankMessage();
       
@@ -475,8 +569,12 @@
       return { text: `${student.message} - ${student.name}`, type: 'student' };
     }
 
+    // IMPROVEMENT #2: Bank deck rotation instead of pure random
     function pickBankMessage() {
-      const message = BANK[Math.floor(Math.random() * BANK.length)];
+      if (bankDeckIndex >= bankDeck.length) {
+        shuffleBankDeck(); // Reshuffle when deck is exhausted
+      }
+      const message = bankDeck[bankDeckIndex++];
       return { text: message, type: 'bank' };
     }
 
@@ -485,10 +583,13 @@
     }
 
     // Generate batch of messages with emojis between each message
+    // IMPROVEMENT #1: Track messages in recent buffer
     function generateBatch(count = 40) {
       const batch = [];
       for (let i = 0; i < count; i++) {
-        batch.push(getNextMessage());
+        const msg = getNextMessageWithBuffer();
+        batch.push(msg);
+        addToRecentBuffer(msg.text); // Track in buffer
         batch.push(pickEmoji()); // Always add emoji after each message
       }
       return batch;
@@ -663,6 +764,7 @@
           if (currentBufferSize > 40) {
             console.log('🔥 NEW TEACHER DETECTED - Forcing buffer refresh');
             ticker.innerHTML = ''; // Clear old messages
+            recentMessagesBuffer = []; // Clear recent buffer for fresh start
             const freshBatch = generateBatch(40); // Generate fresh batch with new teacher
             appendMessages(freshBatch);
             console.log('✅ Buffer refreshed - new teacher will appear within 30 seconds');
@@ -694,6 +796,7 @@
             if (currentBufferSize > 40) {
               console.log('🔥 NEW STUDENT DETECTED - Forcing buffer refresh');
               ticker.innerHTML = '';
+              recentMessagesBuffer = []; // Clear recent buffer for fresh start
               const freshBatch = generateBatch(40);
               appendMessages(freshBatch);
               console.log('✅ Buffer refreshed - new student will appear within 30 seconds');
@@ -725,6 +828,10 @@
       const tickerWrapper = document.getElementById('tickerWrapper');
 
       try {
+        // Initialize bank deck
+        shuffleBankDeck();
+        console.log('✅ Bank deck initialized and shuffled');
+        
         // Fetch initial messages from backend
         await fetchInitial();
         
@@ -755,6 +862,9 @@
         loading.style.display = 'none';
         error.textContent = `Error: ${err.message}\n\nTicker will run with bank messages only.`;
         error.style.display = 'block';
+        
+        // Initialize bank deck even in error case
+        shuffleBankDeck();
         
         // Still start with bank messages
         const initialBatch = generateBatch(80);
