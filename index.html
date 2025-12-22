@@ -257,12 +257,12 @@
           type="range" 
           min="20" 
           max="200" 
-          value="100" 
+          value="85" 
           class="speed-slider" 
           id="speedSlider"
           oninput="updateSpeed(this.value)"
         />
-        <div class="speed-value" id="speedValue">Normal (100px/s)</div>
+        <div class="speed-value" id="speedValue">Slow (85px/s)</div>
       </div>
       <div class="status" id="status">Initializing...</div>
     </div>
@@ -333,7 +333,7 @@
     // State
     let teacherMessages = []; // {id, message, name, email, timestamp, timesShown: 0}
     let studentMessages = []; // {id, message, name, email, timestamp, shown: false}
-    let currentSpeed = 100;
+    let currentSpeed = 85; // 15% slower than original 100px/s
     let scrollPosition = 0;
     let animationFrameId = null;
     let lastFrameTime = null;
